@@ -11,7 +11,7 @@ architecture behavioral of sdhci_test is
   signal clk : std_ulogic := '0';
 
   signal wr_en : std_ulogic := '0';
-  signal addr : std_ulogic_vector(31 downto 0) := X"00000000";
+  signal addr : std_ulogic_vector(31 downto 0) := (others => '0');
   signal data_rx : std_ulogic_vector(31 downto 0) := (others => 'Z');
   signal data_tx : std_ulogic_vector(31 downto 0) := (others => '0');
 
