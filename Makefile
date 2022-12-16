@@ -9,10 +9,13 @@ all_cosim:
 	ghdl --vpi-link gcc cosim.o -o cosim.vpi
 
 run_test: all
-	ghdl -r sdhci_test --stop-time=20ns --vcd=sdhci_test.vcd
+	ghdl -r sdhci_test --stop-time=40ns --vcd=sdhci_test.vcd
+
+run_test_visual: run_test
+	gtkwave sdhci_test.vcd
 
 run_cosim: all_cosim
-	ghdl -r sdhci_cosim --vpi=./cosim.vpi --stop-time=20ns --vcd=sdhci_cosim.vcd
+	ghdl -r sdhci_cosim --vpi=./cosim.vpi --stop-time=40ns --vcd=sdhci_cosim.vcd
 
 clean:
 	rm *.o *.vpi *.cf sdhci_test sdhci_cosim

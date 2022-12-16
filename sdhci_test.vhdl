@@ -12,21 +12,23 @@ architecture behavioral of sdhci_test is
 
   signal wr_en : std_ulogic := '0';
   signal addr : std_ulogic_vector(31 downto 0) := X"00000000";
-  signal data : std_ulogic_vector(31 downto 0) := (others => 'Z');
+  signal data_rx : std_ulogic_vector(31 downto 0) := (others => 'Z');
+  signal data_tx : std_ulogic_vector(31 downto 0) := (others => '0');
 
   signal mem_cycl_en : std_ulogic := '0';
   signal cycle_req : std_ulogic := '0';
-  signal cycle_done : std_ulogic;
+  signal cycle_active : std_ulogic;
 
   component sdhci_pci_interface is
     port (
          cycle_req : in std_ulogic;
-         cycle_done : out std_ulogic;
+         cycle_active : out std_ulogic;
          mem_cycl_en : in std_ulogic;
          wr_en : in std_ulogic;
 
          addr : in std_ulogic_vector(31 downto 0);
-         data : inout std_ulogic_vector(31 downto 0);
+         data_tx : out std_ulogic_vector(31 downto 0);
+         data_rx : in std_ulogic_vector(31 downto 0);
 
          pci_clk : in std_ulogic
     );
@@ -36,12 +38,13 @@ begin
   UUT : sdhci_pci_interface
   port map (
     cycle_req => cycle_req,
-    cycle_done => cycle_done,
+    cycle_active => cycle_active,
     mem_cycl_en => mem_cycl_en,
     wr_en => wr_en,
 
     addr => addr,
-    data => data,
+    data_tx => data_rx,
+    data_rx => data_tx,
 
     pci_clk => clk
 
@@ -55,45 +58,38 @@ begin
 
   process is
   begin
-    wait for clock_period;
-    addr <= X"00000000";
+    addr <= X"00000001";
+    data_tx <= X"AAAAAAAB";
+    wr_en <= '1';
     cycle_req <= '1';
-    wait for clock_period;
-    if cycle_done = '1' then
-      cycle_req <= '0';
-    end if;
+    wait for clock_period * 4;
+    cycle_req <= '0';
+    data_tx <= (others => '0');
+    wr_en <= '0';
     wait for clock_period * 2;
 
     addr <= X"00000001";
-    --data <= X"AAAAAAAB";
+    cycle_req <= '1';
+    wait for clock_period * 4;
+    cycle_req <= '0';
+    wait for clock_period * 2;
+
+    addr <= X"00000001";
+    data_tx <= X"AAAABBBB";
     wr_en <= '1';
     cycle_req <= '1';
-    wait for clock_period * 3;
-    if cycle_done = '1' then
-      cycle_req <= '0';
-      --data <= (others => 'Z');
-      wr_en <= '0';
-    end if;
-    wait for clock_period;
+    wait for clock_period * 4;
+    cycle_req <= '0';
+    data_tx <= (others => '0');
+    wr_en <= '0';
+    wait for clock_period * 2;
 
     mem_cycl_en <= '1';
-    addr <= X"00000000";
+    addr <= X"00000001";
     cycle_req <= '1';
-    wait for clock_period;
-    if cycle_done = '1' then
-      cycle_req <= '0';
-    end if;
-    wait for clock_period;
+    wait for clock_period * 4;
+    cycle_req <= '0';
+    wait for clock_period * 2;
 
-    --addr <= X"00000001";
-    --data <= X"AAAABBBB";
-    --wr_en <= '1';
-    --cycle_req <= '1';
-    --wait for clock_period;
-    --if cycle_done = '1' then
-     -- cycle_req <= '0';
-     -- data <= (others => 'Z');
-     -- wr_en <= '0';
-    --end if;
   end process;
 end;

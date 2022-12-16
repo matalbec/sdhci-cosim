@@ -5,12 +5,13 @@ use ieee.numeric_std.all;
 entity sdhci_pci_interface is
   port (
          cycle_req : in std_ulogic;
-         cycle_done : out std_ulogic := '0';
+         cycle_active : out std_ulogic := '0';
          mem_cycl_en : in std_ulogic;
          wr_en : in std_ulogic;
 
          addr : in std_ulogic_vector(31 downto 0);
-         data : inout std_ulogic_vector(31 downto 0) := (others => 'Z');
+         data_tx : out std_ulogic_vector(31 downto 0) := (others => '0');
+         data_rx : in std_ulogic_vector(31 downto 0);
 
          pci_clk : in std_ulogic
        );
@@ -23,37 +24,35 @@ architecture behavioral of sdhci_pci_interface is
   signal membar : t_membar := (X"11223344" ,others => X"00000000");
 
   signal cycle_complete : std_ulogic := '0';
-  signal tx_data_internal : std_ulogic_vector(31 downto 0) := (others => '0');
-  signal tx_enable : std_ulogic := '0';
-
 begin
 
   process (pci_clk) is
   begin
     if rising_edge (pci_clk) then
+
       if cycle_req = '1' and cycle_complete = '0' then
+        cycle_active <= '1';
+
         if mem_cycl_en = '1' then
           if wr_en = '1' then
-            membar(to_integer(unsigned(addr))) <= data;
+            membar(to_integer(unsigned(addr))) <= data_rx;
           else
-            tx_data_internal <= membar(to_integer(unsigned(addr)));
-            tx_enable <= '1';
+            data_tx <= membar(to_integer(unsigned(addr)));
           end if;
         else
           if wr_en = '1' then
-            pci_config(to_integer (unsigned(addr))) <= data;
+            pci_config(to_integer (unsigned(addr))) <= data_rx;
           else
-            tx_data_internal <= pci_config(to_integer (unsigned(addr)));
-            tx_enable <= '1';
+            data_tx <= pci_config(to_integer (unsigned(addr)));
           end if;
         end if;
+
         cycle_complete <= '1';
-        cycle_done <= '1';
-        tx_enable <= '0';
-        data <= tx_data_internal when tx_enable = '0' else (others => 'Z');
+
       elsif cycle_req = '0' and cycle_complete = '1' then
-        cycle_done <= '0';
+        cycle_active <= '0';
         cycle_complete <= '0';
+        data_tx <= (others => '0');
       end if;
     end if;
   end process;

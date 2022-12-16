@@ -1,0 +1,6 @@
+*.cf
+*.o
+*.vpi
+*.vcd
+sdhci_test
+sdhci_cosim
