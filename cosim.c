@@ -53,25 +53,47 @@ int get_value_from_net (int index) {
   return ret_val;
 }
 
-void prepare_pci_config_read (int address) {
-  vpi_printf ("addr = %X\n", address);
-  put_value_to_net(PCI_NET_ADDR_INDX, address);
+typedef struct {
+  int address;
+  int data;
+  int write_cycle;
+  int mem_cycle;
+} PCI_CYCLE_MSG;
+
+void prepare_cycle (PCI_CYCLE_MSG  *cycle_msg) {
+  put_value_to_net(PCI_NET_ADDR_INDX, cycle_msg->address);
+  if (cycle_msg->write_cycle) {
+    put_value_to_net(PCI_NET_WR_EN_INDX, 1);
+  } else {
+    put_value_to_net(PCI_NET_WR_EN_INDX, 0);
+  }
+
+  if (cycle_msg->mem_cycle) {
+    put_value_to_net(PCI_NET_MEM_CYCLE_EN_INDX, 1);
+  } else {
+    put_value_to_net(PCI_NET_MEM_CYCLE_EN_INDX, 0);
+  }
+
+  if (cycle_msg->write_cycle) {
+    put_value_to_net(PCI_NET_DATA_TX_INDX, cycle_msg->data);
+  }
+
   put_value_to_net(PCI_NET_CYCLE_REQ_INDX, 1);
-  put_value_to_net(PCI_NET_WR_EN_INDX, 0);
-  put_value_to_net(PCI_NET_MEM_CYCLE_EN_INDX, 0);
 }
 
-void finish_pci_config_read () {
+void finish_cycle () {
   put_value_to_net (PCI_NET_CYCLE_REQ_INDX, 0);
+  put_value_to_net (PCI_NET_WR_EN_INDX, 0);
+  put_value_to_net (PCI_NET_DATA_TX_INDX, 0);
+  put_value_to_net(PCI_NET_MEM_CYCLE_EN_INDX, 0);
 }
 
 pthread_mutex_t cycle_lock;
 
 int cycle_request = 0;
 int cycle_in_progress = 0;
+PCI_CYCLE_MSG  cycle_msg = {0, 0, 0, 0};
 int cycle_done = 0;
-int address = 0;
-int data = 0;
 int clock_countdown = 0;
 int idle_countdown = 0;
 int driver_done = 0;
@@ -92,14 +114,14 @@ PLI_INT32 cb_clk_value_change(p_cb_data cb_data) {
 
   if (cycle_request == 1 && cycle_in_progress == 0) {
     vpi_printf ("starting cycle\n");
-    prepare_pci_config_read(address);
+    prepare_cycle(&cycle_msg);
     cycle_in_progress = 1;
     clock_countdown = 4;
   } else if (cycle_request == 1 && cycle_in_progress == 1) {
     if (clock_countdown == 0) {
-      data = get_value_from_net(PCI_NET_DATA_RX_INDX);
-      vpi_printf ("data got from net %X\n", data);
-      finish_pci_config_read();
+      cycle_msg.data = get_value_from_net(PCI_NET_DATA_RX_INDX);
+      vpi_printf ("data got from net %X\n", cycle_msg.data);
+      finish_cycle();
       cycle_in_progress = 0;
       cycle_done = 1;
       idle_countdown = 2;
@@ -124,14 +146,19 @@ PLI_INT32 cb_clk_value_change(p_cb_data cb_data) {
 
 pthread_t driver_thread_handle;
 
-int read_pci_config_blocking (int addr, int *dat) {
+int send_blocking_cycle_msg_to_sim_thread (int address, int data, int write_cycle, int mem_cycle, int *ret_data) {
   pthread_mutex_lock (&cycle_lock);
 
   if (cycle_request == 1) {
     return -1;
   }
 
-  address = addr;
+  cycle_msg.address = address;
+  cycle_msg.write_cycle = write_cycle;
+  cycle_msg.mem_cycle = mem_cycle;
+  if (cycle_msg.write_cycle == 1) {
+    cycle_msg.data = data;
+  }
   cycle_request = 1;
 
   while (cycle_done == 0) {
@@ -139,13 +166,33 @@ int read_pci_config_blocking (int addr, int *dat) {
     pthread_mutex_lock(&cycle_lock);
   }
 
-  *dat = data;
-  address = 0;
+  if (write_cycle == 0) {
+    *ret_data = cycle_msg.data;
+  }
+  cycle_msg.address = 0;
+  cycle_msg.write_cycle = 0;
+  cycle_msg.mem_cycle = 0;
   cycle_request = 0;
   cycle_done = 0;
 
   pthread_mutex_unlock(&cycle_lock);
   return 0;
+}
+
+int read_pci_config_blocking (int addr, int *dat) {
+  return send_blocking_cycle_msg_to_sim_thread(addr, 0, 0, 0, dat);
+}
+
+int write_pci_config_blocking (int addr, int dat) {
+  return send_blocking_cycle_msg_to_sim_thread(addr, dat, 1, 0, NULL);
+}
+
+int read_mem_blocking (int addr, int *dat) {
+  return send_blocking_cycle_msg_to_sim_thread(addr, 0, 0, 1, dat);
+}
+
+int write_mem_blocking (int addr, int dat) {
+  return send_blocking_cycle_msg_to_sim_thread(addr, dat, 1, 1, NULL);
 }
 
 void* driver_thread (void *arguments) {
@@ -155,6 +202,21 @@ void* driver_thread (void *arguments) {
 
   read_pci_config_blocking(1, &data);
   vpi_printf ("got data %X\n", data);
+
+  write_pci_config_blocking(2, 0x22334455);
+
+  write_pci_config_blocking(3, 0xDEADBEEF);
+
+  read_pci_config_blocking(3, &data);
+  vpi_printf("got data %X\n", data);
+
+  read_mem_blocking(0, &data);
+  vpi_printf ("got mem data %X\n", data);
+
+  write_mem_blocking(1, 0xAAAABBBB);
+
+  read_mem_blocking(1, &data);
+  vpi_printf ("got mem data %X\n", data);
 
   pthread_mutex_lock(&cycle_lock);
   driver_done = 1;
