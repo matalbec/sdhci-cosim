@@ -15,7 +15,7 @@ run_test_visual: run_test
 	gtkwave sdhci_test.vcd
 
 run_cosim: all_cosim
-	ghdl -r sdhci_cosim --vpi=./cosim.vpi --stop-time=40ns --vcd=sdhci_cosim.vcd
+	ghdl -r sdhci_cosim --stop-time=40ns --vpi=./cosim.vpi --vcd=sdhci_cosim.vcd
 
 clean:
-	rm *.o *.vpi *.cf sdhci_test sdhci_cosim
+	rm *.o *.vpi *.cf *.vcd sdhci_test sdhci_cosim
