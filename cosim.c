@@ -5,6 +5,10 @@
 #include <pthread.h>
 #include <unistd.h>
 
+#include <netdb.h>
+#include <netinet/in.h>
+#include <strings.h>
+
 typedef struct {
   const char* name;
   vpiHandle handle;
@@ -199,35 +203,121 @@ int write_mem_blocking (int addr, int dat) {
   return send_blocking_cycle_msg_to_sim_thread(addr, dat, 1, 1, NULL);
 }
 
+void parse_msg (char* msg, int *read_cycle, int *ret_data) {
+  char delim[] = " ";
+  char* cmd;
+  char* type;
+  char* address;
+  char* size;
+  char* value;
+  int addr;
+  int data;
+
+  cmd = strtok (msg, delim);
+  type = strtok (NULL, delim);
+  address = strtok (NULL, delim);
+  vpi_printf ("adr str %s\n", address);
+  addr = atoi (address);
+  vpi_printf ("address %d\n", addr);
+  size = strtok (NULL, delim);
+  if (!strcmp(cmd, "write")) {
+    value = strtok (NULL, delim);
+    vpi_printf ("value str %s\n", value);
+    data = atoi (value);
+    vpi_printf ("data = %d\n", data);
+  }
+
+
+  if (!strcmp (cmd, "write")) {
+    if (!strcmp (type, "pci")) {
+      write_pci_config_blocking(addr, data);
+    } else {
+      write_mem_blocking(addr, data);
+    }
+    *read_cycle = 0;
+  } else {
+    if (!strcmp (type, "pci")) {
+      read_pci_config_blocking(addr, &data);
+    } else {
+      read_mem_blocking(addr, &data);
+    }
+    *read_cycle = 1;
+    *ret_data = data;
+  }
+}
+
+int driver_communicate (int socket) {
+  char buffer[256];
+  int data;
+  int read;
+
+  bzero (buffer, 256);
+  if (recv(socket, buffer, 255, 0) < 0) {
+    vpi_printf("communication error\n");
+    return 0;
+  }
+
+  vpi_printf ("got from driver %s\n", buffer);
+
+  if (!strcmp (buffer, "done")) {
+    return 0;
+  }
+
+  parse_msg (buffer, &read, &data);
+  vpi_printf ("read = %d data = %d\n", read, data);
+
+  char resp[256];
+  if (read) {
+    sprintf (resp, "%d", data);
+  } else {
+    sprintf (resp, "resp");
+  }
+  send (socket, resp, 255, 0);
+
+  return 1;
+}
+
 void* driver_thread (void *arguments) {
-  int data = 0;
-  read_pci_config_blocking(0, &data);
-  vpi_printf ("got data %X\n", data);
+  int sockfd, newsockfd, portno, clilen;
+  struct sockaddr_in serv_addr, cli_addr;
 
-  read_pci_config_blocking(1, &data);
-  vpi_printf ("got data %X\n", data);
+  sockfd = socket (AF_INET, SOCK_STREAM, 0);
+  if (sockfd < 0) {
+    vpi_printf ("failed to create socket\n");
+    return NULL;
+  }
 
-  write_pci_config_blocking(2, 0x22334455);
+  bzero (&serv_addr, sizeof (serv_addr));
+  portno = 5001;
 
-  write_pci_config_blocking(3, 0xDEADBEEF);
+  serv_addr.sin_family = AF_INET;
+  serv_addr.sin_addr.s_addr = INADDR_ANY;
+  serv_addr.sin_port = htons(portno);
 
-  read_pci_config_blocking(3, &data);
-  vpi_printf("got data %X\n", data);
+  if (bind(sockfd, (struct sockaddr*) &serv_addr, sizeof (serv_addr)) < 0) {
+    vpi_printf ("failed to bind the socket\n");
+    return NULL;
+  }
 
-  read_mem_blocking(0, &data);
-  vpi_printf ("got mem data %X\n", data);
+  listen(sockfd, 1);
 
-  write_mem_blocking(1, 0xAAAABBBB);
+  clilen = sizeof (cli_addr);
+  newsockfd = accept (sockfd, (struct sockaddr*)&cli_addr, &clilen);
+  if (newsockfd < 0) {
+    vpi_printf ("Failed to connect to client\n");
+  } else {
+    vpi_printf ("driver connected\n");
+  }
 
-  read_mem_blocking(1, &data);
-  vpi_printf ("got mem data %X\n", data);
+  while (driver_communicate (newsockfd)) {
+  }
 
+  vpi_printf ("driver done\n");
   pthread_mutex_lock(&cycle_lock);
   driver_done = 1;
   pthread_mutex_unlock(&cycle_lock);
 
-  vpi_printf ("driver done\n");
-  vpi_control (vpiFinish); // Doesn't seem to work, for now rely on stop time argument during sim launch
+  return NULL;
 }
 
 void start_driver_thread() {

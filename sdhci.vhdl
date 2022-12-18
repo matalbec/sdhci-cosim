@@ -22,7 +22,7 @@ architecture behavioral of sdhci_pci_interface is
   type t_pci_config is array (0 to 120) of std_ulogic_vector(7 downto 0);
   type t_membar is array (0 to 120) of std_ulogic_vector(7 downto 0);
   signal pci_config : t_pci_config := (others => (others => '0'));
-  signal membar : t_membar := (others => (others => '0'));
+  signal membar : t_membar := (36 => X"AA", 37 => X"AB", 38 => X"CC", 39 => X"DD",others => (others => '0'));
 
   signal cycle_complete : std_ulogic := '0';
 begin
