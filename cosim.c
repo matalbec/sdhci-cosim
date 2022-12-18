@@ -18,6 +18,7 @@ typedef struct {
 #define PCI_NET_CYCLE_REQ_INDX 5
 #define PCI_NET_CYCLE_ACTIVE_INDX 6
 #define PCI_NET_CLK_INDX 7
+#define PCI_NET_WIDTH_INDX 8
 
 VPI_NET pci_nets[] = {
   {"wr_en", NULL},
@@ -27,7 +28,8 @@ VPI_NET pci_nets[] = {
   {"mem_cycl_en", NULL},
   {"cycle_req", NULL},
   {"cycle_active", NULL},
-  {"clk", NULL}
+  {"clk", NULL},
+  {"width", NULL}
 };
 
 void put_value_to_net (int index, int value) {
@@ -62,6 +64,7 @@ typedef struct {
 
 void prepare_cycle (PCI_CYCLE_MSG  *cycle_msg) {
   put_value_to_net(PCI_NET_ADDR_INDX, cycle_msg->address);
+  put_value_to_net(PCI_NET_WIDTH_INDX, 2); // 32-bit msg always
   if (cycle_msg->write_cycle) {
     put_value_to_net(PCI_NET_WR_EN_INDX, 1);
   } else {
@@ -86,6 +89,7 @@ void finish_cycle () {
   put_value_to_net (PCI_NET_WR_EN_INDX, 0);
   put_value_to_net (PCI_NET_DATA_TX_INDX, 0);
   put_value_to_net(PCI_NET_MEM_CYCLE_EN_INDX, 0);
+  put_value_to_net(PCI_NET_WIDTH_INDX, 0);
 }
 
 pthread_mutex_t cycle_lock;

@@ -10,6 +10,7 @@ entity sdhci_pci_interface is
          wr_en : in std_ulogic;
 
          addr : in std_ulogic_vector(31 downto 0);
+         width : in std_ulogic_vector(1 downto 0); -- 0 = byte, 1, = word, 2 - dword
          data_tx : out std_ulogic_vector(31 downto 0) := (others => '0');
          data_rx : in std_ulogic_vector(31 downto 0);
 
@@ -18,10 +19,10 @@ entity sdhci_pci_interface is
 end sdhci_pci_interface;
 
 architecture behavioral of sdhci_pci_interface is
-  type t_pci_config is array (0 to 30) of std_ulogic_vector(31 downto 0);
-  type t_membar is array (0 to 30) of std_ulogic_vector(31 downto 0);
-  signal pci_config : t_pci_config := (X"80811112", X"12345678", others => (others => '0'));
-  signal membar : t_membar := (X"11223344" ,others => (others => '0'));
+  type t_pci_config is array (0 to 120) of std_ulogic_vector(7 downto 0);
+  type t_membar is array (0 to 120) of std_ulogic_vector(7 downto 0);
+  signal pci_config : t_pci_config := (others => (others => '0'));
+  signal membar : t_membar := (others => (others => '0'));
 
   signal cycle_complete : std_ulogic := '0';
 begin
@@ -35,15 +36,55 @@ begin
 
         if mem_cycl_en = '1' then
           if wr_en = '1' then
-            membar(to_integer(unsigned(addr))) <= data_rx;
+            if width = X"0" then -- byte
+              membar(to_integer(unsigned(addr))) <= data_rx(7 downto 0);
+            elsif width = X"1" then -- word
+              membar(to_integer(unsigned(addr))) <= data_rx(7 downto 0);
+              membar(to_integer(unsigned(addr) + 1)) <= data_rx(15 downto 8);
+            else -- dword and default case
+              membar(to_integer(unsigned(addr))) <= data_rx(7 downto 0);
+              membar(to_integer(unsigned(addr) + 1)) <= data_rx(15 downto 8);
+              membar(to_integer(unsigned(addr) + 2)) <= data_rx (23 downto 16);
+              membar(to_integer(unsigned(addr) + 3)) <= data_rx (31 downto 24);
+            end if;
           else
-            data_tx <= membar(to_integer(unsigned(addr)));
+            if width = X"0" then -- byte
+              data_tx(7 downto 0) <= membar(to_integer(unsigned(addr)));
+            elsif width = X"1" then -- word
+              data_tx(7 downto 0) <= membar(to_integer(unsigned(addr)));
+              data_tx(15 downto 8) <= membar(to_integer(unsigned(addr) + 1));
+            else -- dword and default case
+              data_tx(7 downto 0) <= membar(to_integer(unsigned(addr)));
+              data_tx(15 downto 8) <= membar(to_integer(unsigned(addr) + 1));
+              data_tx(23 downto 16) <= membar(to_integer(unsigned(addr) + 2));
+              data_tx(31 downto 24) <= membar(to_integer(unsigned(addr) + 3));
+            end if;
           end if;
         else
           if wr_en = '1' then
-            pci_config(to_integer (unsigned(addr))) <= data_rx;
+            if width = X"0" then -- byte
+              pci_config(to_integer(unsigned(addr))) <= data_rx(7 downto 0);
+            elsif width = X"1" then -- word
+              pci_config(to_integer(unsigned(addr))) <= data_rx(7 downto 0);
+              pci_config(to_integer(unsigned(addr) + 1)) <= data_rx(15 downto 8);
+            else -- dword and default case
+              pci_config(to_integer(unsigned(addr))) <= data_rx(7 downto 0);
+              pci_config(to_integer(unsigned(addr) + 1)) <= data_rx(15 downto 8);
+              pci_config(to_integer(unsigned(addr) + 2)) <= data_rx (23 downto 16);
+              pci_config(to_integer(unsigned(addr) + 3)) <= data_rx (31 downto 24);
+            end if;
           else
-            data_tx <= pci_config(to_integer (unsigned(addr)));
+            if width = X"0" then -- byte
+              data_tx(7 downto 0) <= pci_config(to_integer(unsigned(addr)));
+            elsif width = X"1" then -- word
+              data_tx(7 downto 0) <= pci_config(to_integer(unsigned(addr)));
+              data_tx(15 downto 8) <= pci_config(to_integer(unsigned(addr) + 1));
+            else -- dword and default case
+              data_tx(7 downto 0) <= pci_config(to_integer(unsigned(addr)));
+              data_tx(15 downto 8) <= pci_config(to_integer(unsigned(addr) + 1));
+              data_tx(23 downto 16) <= pci_config(to_integer(unsigned(addr) + 2));
+              data_tx(31 downto 24) <= pci_config(to_integer(unsigned(addr) + 3));
+            end if;
           end if;
         end if;
 

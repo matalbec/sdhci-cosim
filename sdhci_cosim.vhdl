@@ -11,7 +11,8 @@ architecture behavioral of sdhci_cosim is
   signal clk : std_ulogic := '0';
 
   signal wr_en : std_ulogic := '0';
-  signal addr : std_ulogic_vector(31 downto 0) := X"00000000";
+  signal addr : std_ulogic_vector(31 downto 0) := (others => '0');
+  signal width : std_ulogic_vector(1 downto 0) := (others => '0');
   signal data_rx : std_ulogic_vector(31 downto 0) := (others => 'Z');
   signal data_tx : std_ulogic_vector(31 downto 0) := (others => '0');
 
@@ -27,6 +28,7 @@ architecture behavioral of sdhci_cosim is
          wr_en : in std_ulogic;
 
          addr : in std_ulogic_vector(31 downto 0);
+         width : in std_ulogic_vector(1 downto 0);
          data_tx : out std_ulogic_vector(31 downto 0);
          data_rx : in std_ulogic_vector(31 downto 0);
 
@@ -43,6 +45,7 @@ begin
     wr_en => wr_en,
 
     addr => addr,
+    width => width,
     data_tx => data_rx,
     data_rx => data_tx,
 
