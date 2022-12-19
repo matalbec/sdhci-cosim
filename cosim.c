@@ -100,11 +100,15 @@ pthread_mutex_t cycle_lock;
 
 int cycle_request = 0;
 int cycle_in_progress = 0;
-PCI_CYCLE_MSG  cycle_msg = {0, 0, 0, 0};
 int cycle_done = 0;
-int clock_countdown = 0;
+PCI_CYCLE_MSG  cycle_msg = {0, 0, 0, 0};
 int idle_countdown = 0;
 int driver_done = 0;
+int wait_for_cycle_done = 0;
+
+PLI_INT32 cb_cycle_active_change (p_cb_data cb_data) {
+  return 0;
+}
 
 PLI_INT32 cb_clk_value_change(p_cb_data cb_data) {
 
@@ -120,22 +124,28 @@ PLI_INT32 cb_clk_value_change(p_cb_data cb_data) {
     return 0;
   }
 
+  if (wait_for_cycle_done == 1) {
+    vpi_printf ("waiting for cycle done\n");
+    int active = get_value_from_net(PCI_NET_CYCLE_ACTIVE_INDX);
+    if (active == 0) {
+      wait_for_cycle_done = 0;
+    }
+    pthread_mutex_unlock(&cycle_lock);
+    return 0;
+  }
+
   if (cycle_request == 1 && cycle_in_progress == 0) {
     vpi_printf ("starting cycle\n");
     prepare_cycle(&cycle_msg);
     cycle_in_progress = 1;
-    clock_countdown = 4;
+    wait_for_cycle_done = 1;
   } else if (cycle_request == 1 && cycle_in_progress == 1) {
-    if (clock_countdown == 0) {
-      cycle_msg.data = get_value_from_net(PCI_NET_DATA_RX_INDX);
-      vpi_printf ("data got from net %X\n", cycle_msg.data);
-      finish_cycle();
-      cycle_in_progress = 0;
-      cycle_done = 1;
-      idle_countdown = 2;
-    } else {
-      clock_countdown--;
-    }
+    cycle_msg.data = get_value_from_net(PCI_NET_DATA_RX_INDX);
+    vpi_printf ("data got from net %X\n", cycle_msg.data);
+    finish_cycle();
+    cycle_in_progress = 0;
+    cycle_done = 1;
+    idle_countdown = 2;
   }
 
   while (cycle_request == 0 || cycle_done == 1) {
@@ -372,10 +382,6 @@ PLI_INT32 cb_start_of_sim(p_cb_data cb_data){
   cb.reason = cbValueChange;
   cb.cb_rtn = cb_clk_value_change;
   cb.user_data = NULL;
-  if (pci_nets[PCI_NET_CLK_INDX].handle == NULL) {
-    vpi_printf ("clock NULL\n");
-    return 0;
-  }
   cb.obj = pci_nets[PCI_NET_CLK_INDX].handle;
   time.type = vpiSuppressTime;
   val.format = vpiSuppressVal;
@@ -383,6 +389,16 @@ PLI_INT32 cb_start_of_sim(p_cb_data cb_data){
   cb.value = &val;
 
   vpi_register_cb (&cb);
+
+  s_cb_data active_cb;
+  active_cb.reason = cbValueChange;
+  active_cb.cb_rtn = cb_cycle_active_change;
+  active_cb.user_data = NULL;
+  active_cb.obj = pci_nets[PCI_NET_CYCLE_ACTIVE_INDX].handle;
+  active_cb.time = &time;
+  active_cb.value = &val;
+
+  vpi_register_cb (&active_cb);
 
   start_driver_thread ();
 
