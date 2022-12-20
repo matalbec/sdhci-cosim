@@ -112,6 +112,12 @@ PLI_INT32 cb_cycle_active_change (p_cb_data cb_data) {
 
 PLI_INT32 cb_clk_value_change(p_cb_data cb_data) {
 
+  // skip falling edges
+  int clock_state = get_value_from_net (PCI_NET_CLK_INDX);
+  if (clock_state == 0) {
+    return 0;
+  }
+
   if (idle_countdown > 0) {
     idle_countdown--;
     return 0;
@@ -140,8 +146,10 @@ PLI_INT32 cb_clk_value_change(p_cb_data cb_data) {
     cycle_in_progress = 1;
     wait_for_cycle_done = 1;
   } else if (cycle_request == 1 && cycle_in_progress == 1) {
-    cycle_msg.data = get_value_from_net(PCI_NET_DATA_RX_INDX);
-    vpi_printf ("data got from net %X\n", cycle_msg.data);
+    if (cycle_msg.write_cycle == 0) {
+      cycle_msg.data = get_value_from_net(PCI_NET_DATA_RX_INDX);
+      vpi_printf ("data got from net %X\n", cycle_msg.data);
+    }
     finish_cycle();
     cycle_in_progress = 0;
     cycle_done = 1;
@@ -226,15 +234,13 @@ void parse_msg (char* msg, int *read_cycle, int *ret_data) {
   cmd = strtok (msg, delim);
   type = strtok (NULL, delim);
   address = strtok (NULL, delim);
-  vpi_printf ("adr str %s\n", address);
   addr = atoi (address);
-  vpi_printf ("address %d\n", addr);
+  vpi_printf ("address %X\n", addr);
   size = strtok (NULL, delim);
   if (!strcmp(cmd, "write")) {
     value = strtok (NULL, delim);
-    vpi_printf ("value str %s\n", value);
     data = atoi (value);
-    vpi_printf ("data = %d\n", data);
+    vpi_printf ("data = %X\n", data);
   }
 
 
