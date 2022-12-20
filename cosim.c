@@ -173,17 +173,19 @@ PLI_INT32 cb_clk_value_change(p_cb_data cb_data) {
 pthread_t driver_thread_handle;
 
 int send_blocking_cycle_msg_to_sim_thread (int address, int data, int write_cycle, int mem_cycle, int *ret_data) {
+  int alignment = 0;
   pthread_mutex_lock (&cycle_lock);
 
   if (cycle_request == 1) {
     return -1;
   }
 
-  cycle_msg.address = address;
+  cycle_msg.address = address - (address % 4);
   cycle_msg.write_cycle = write_cycle;
   cycle_msg.mem_cycle = mem_cycle;
   if (cycle_msg.write_cycle == 1) {
-    cycle_msg.data = data;
+    alignment = address % 4;
+    cycle_msg.data = data << (alignment * 8);
   }
   cycle_request = 1;
 
@@ -193,7 +195,8 @@ int send_blocking_cycle_msg_to_sim_thread (int address, int data, int write_cycl
   }
 
   if (write_cycle == 0) {
-    *ret_data = cycle_msg.data;
+    alignment = address % 4;
+    *ret_data = cycle_msg.data >> (alignment * 8);
   }
   cycle_msg.address = 0;
   cycle_msg.write_cycle = 0;
