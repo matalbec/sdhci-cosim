@@ -22,7 +22,7 @@ typedef struct {
 #define PCI_NET_CYCLE_REQ_INDX 5
 #define PCI_NET_CYCLE_ACTIVE_INDX 6
 #define PCI_NET_CLK_INDX 7
-#define PCI_NET_WIDTH_INDX 8
+#define PCI_NET_BYTE_ENABLE_INDX 8
 
 VPI_NET pci_nets[] = {
   {"wr_en", NULL},
@@ -33,7 +33,7 @@ VPI_NET pci_nets[] = {
   {"cycle_req", NULL},
   {"cycle_active", NULL},
   {"clk", NULL},
-  {"width", NULL}
+  {"byte_enable", NULL}
 };
 
 void put_value_to_net (int index, int value) {
@@ -61,14 +61,17 @@ int get_value_from_net (int index) {
 
 typedef struct {
   int address;
+  int byte_enable;
   int data;
   int write_cycle;
   int mem_cycle;
 } PCI_CYCLE_MSG;
 
 void prepare_cycle (PCI_CYCLE_MSG  *cycle_msg) {
+  vpi_printf ("starting cycle with address %X\n", cycle_msg->address);
+  vpi_printf ("byte_enable %X\n", cycle_msg->byte_enable);
   put_value_to_net(PCI_NET_ADDR_INDX, cycle_msg->address);
-  put_value_to_net(PCI_NET_WIDTH_INDX, 2); // 32-bit msg always
+  put_value_to_net(PCI_NET_BYTE_ENABLE_INDX, cycle_msg->byte_enable); // 32-bit msg always
   if (cycle_msg->write_cycle) {
     put_value_to_net(PCI_NET_WR_EN_INDX, 1);
   } else {
@@ -93,7 +96,7 @@ void finish_cycle () {
   put_value_to_net (PCI_NET_WR_EN_INDX, 0);
   put_value_to_net (PCI_NET_DATA_TX_INDX, 0);
   put_value_to_net(PCI_NET_MEM_CYCLE_EN_INDX, 0);
-  put_value_to_net(PCI_NET_WIDTH_INDX, 0);
+  put_value_to_net(PCI_NET_BYTE_ENABLE_INDX, 0);
 }
 
 pthread_mutex_t cycle_lock;
@@ -101,7 +104,7 @@ pthread_mutex_t cycle_lock;
 int cycle_request = 0;
 int cycle_in_progress = 0;
 int cycle_done = 0;
-PCI_CYCLE_MSG  cycle_msg = {0, 0, 0, 0};
+PCI_CYCLE_MSG  cycle_msg = {0, 0, 0, 0, 0};
 int idle_countdown = 0;
 int driver_done = 0;
 int wait_for_cycle_done = 0;
@@ -172,7 +175,7 @@ PLI_INT32 cb_clk_value_change(p_cb_data cb_data) {
 
 pthread_t driver_thread_handle;
 
-int send_blocking_cycle_msg_to_sim_thread (int address, int data, int write_cycle, int mem_cycle, int *ret_data) {
+int send_blocking_cycle_msg_to_sim_thread (int address, int wid, int data, int write_cycle, int mem_cycle, int *ret_data) {
   int alignment = 0;
   pthread_mutex_lock (&cycle_lock);
 
@@ -180,7 +183,21 @@ int send_blocking_cycle_msg_to_sim_thread (int address, int data, int write_cycl
     return -1;
   }
 
+  switch (wid) {
+    case 1:
+      cycle_msg.byte_enable = 0x1;
+      break;
+    case 2:
+      cycle_msg.byte_enable = 0x3;
+      break;
+    case 4:
+    default:
+      cycle_msg.byte_enable = 0xF;
+      break;
+  }
+
   cycle_msg.address = address - (address % 4);
+  cycle_msg.byte_enable = cycle_msg.byte_enable << (address % 4);
   cycle_msg.write_cycle = write_cycle;
   cycle_msg.mem_cycle = mem_cycle;
   if (cycle_msg.write_cycle == 1) {
@@ -208,20 +225,20 @@ int send_blocking_cycle_msg_to_sim_thread (int address, int data, int write_cycl
   return 0;
 }
 
-int read_pci_config_blocking (int addr, int *dat) {
-  return send_blocking_cycle_msg_to_sim_thread(addr, 0, 0, 0, dat);
+int read_pci_config_blocking (int addr, int wid, int *dat) {
+  return send_blocking_cycle_msg_to_sim_thread(addr, wid, 0, 0, 0, dat);
 }
 
-int write_pci_config_blocking (int addr, int dat) {
-  return send_blocking_cycle_msg_to_sim_thread(addr, dat, 1, 0, NULL);
+int write_pci_config_blocking (int addr, int wid, int dat) {
+  return send_blocking_cycle_msg_to_sim_thread(addr, wid, dat, 1, 0, NULL);
 }
 
-int read_mem_blocking (int addr, int *dat) {
-  return send_blocking_cycle_msg_to_sim_thread(addr, 0, 0, 1, dat);
+int read_mem_blocking (int addr, int wid, int *dat) {
+  return send_blocking_cycle_msg_to_sim_thread(addr, wid, 0, 0, 1, dat);
 }
 
-int write_mem_blocking (int addr, int dat) {
-  return send_blocking_cycle_msg_to_sim_thread(addr, dat, 1, 1, NULL);
+int write_mem_blocking (int addr, int wid, int dat) {
+  return send_blocking_cycle_msg_to_sim_thread(addr, wid, dat, 1, 1, NULL);
 }
 
 void parse_msg (char* msg, int *read_cycle, int *ret_data) {
@@ -233,6 +250,7 @@ void parse_msg (char* msg, int *read_cycle, int *ret_data) {
   char* value;
   int addr;
   int data;
+  int wid;
 
   cmd = strtok (msg, delim);
   type = strtok (NULL, delim);
@@ -240,6 +258,7 @@ void parse_msg (char* msg, int *read_cycle, int *ret_data) {
   addr = atoi (address);
   vpi_printf ("address %X\n", addr);
   size = strtok (NULL, delim);
+  wid = atoi (size);
   if (!strcmp(cmd, "write")) {
     value = strtok (NULL, delim);
     data = atoi (value);
@@ -249,16 +268,16 @@ void parse_msg (char* msg, int *read_cycle, int *ret_data) {
 
   if (!strcmp (cmd, "write")) {
     if (!strcmp (type, "pci")) {
-      write_pci_config_blocking(addr, data);
+      write_pci_config_blocking(addr, wid, data);
     } else {
-      write_mem_blocking(addr, data);
+      write_mem_blocking(addr, wid, data);
     }
     *read_cycle = 0;
   } else {
     if (!strcmp (type, "pci")) {
-      read_pci_config_blocking(addr, &data);
+      read_pci_config_blocking(addr, wid, &data);
     } else {
-      read_mem_blocking(addr, &data);
+      read_mem_blocking(addr, wid, &data);
     }
     *read_cycle = 1;
     *ret_data = data;
